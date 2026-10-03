@@ -8,10 +8,11 @@ from app.application.messages import (
     ToolMessage,
     UserMessage,
 )
+from app.domain.observability.events import EventType, ExecutionEvent
 from app.domain.runs import Run
 from app.domain.runs.repository import RunRepository
 from app.infrastructure.db.message_models import MessageRecord
-from app.infrastructure.db.models import RunRecord
+from app.infrastructure.db.models import ExecutionEventRecord, RunRecord
 
 
 class PostgresRunRepository(RunRepository):
@@ -72,6 +73,49 @@ class PostgresRunRepository(RunRepository):
         self.session.commit()
 
         return run
+
+    def save_execution_events(
+        self,
+        run_id: UUID,
+        events: list[ExecutionEvent],
+    ) -> list[ExecutionEvent]:
+        self.session.execute(
+            delete(ExecutionEventRecord).where(
+                ExecutionEventRecord.run_id == str(run_id)
+            )
+        )
+
+        for event in events:
+            record = ExecutionEventRecord(
+                id=str(event.id),
+                run_id=str(run_id),
+                event_type=event.event_type.value,
+                timestamp=event.timestamp,
+                event_metadata=event.metadata,
+            )
+            self.session.add(record)
+
+        self.session.commit()
+        return list(events)
+
+    def get_execution_events(self, run_id: UUID) -> list[ExecutionEvent]:
+        records = (
+            self.session.query(ExecutionEventRecord)
+            .filter(ExecutionEventRecord.run_id == str(run_id))
+            .order_by(ExecutionEventRecord.id)
+            .all()
+        )
+
+        return [
+            ExecutionEvent(
+                id=UUID(record.id),
+                run_id=run_id,
+                event_type=EventType(record.event_type),
+                timestamp=record.timestamp,
+                metadata=record.event_metadata or {},
+            )
+            for record in records
+        ]
 
     def _save_messages(self, run: Run) -> None:
         for message in run.messages:

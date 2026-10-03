@@ -2,7 +2,7 @@ import pytest
 from pydantic import BaseModel
 
 from app.application.agent import AgentRunner
-from app.application.llm import FakeLLM, FinalAnswer, ToolCall
+from app.application.llm import FakeLLM, FinalAnswer, LLMUsage, ToolCall
 from app.application.tool_executor import ToolExecutor
 from app.domain.tools import Permission, Tool, ToolRegistry, ToolResult
 
@@ -29,6 +29,9 @@ def make_executor() -> ToolExecutor:
         registry,
         {Permission.FILESYSTEM_READ.value},
     )
+
+
+tool_executor = make_executor()
 
 
 def test_agent_returns_final_answer() -> None:
@@ -84,3 +87,57 @@ def test_agent_stops_at_max_steps() -> None:
 
     with pytest.raises(RuntimeError, match="maximum steps"):
         agent.run("Loop forever")
+
+from app.domain.observability.events import EventType
+from app.domain.observability.recorder import EventRecorder
+
+
+def test_agent_records_execution_events() -> None:
+    recorder = EventRecorder()
+
+    runner = AgentRunner(
+        llm=FakeLLM(
+            responses=[
+                FinalAnswer(content="done"),
+            ]
+        ),
+        tool_executor=tool_executor,
+        event_recorder=recorder,
+    )
+
+    result = runner.run("test task")
+
+    assert result == "done"
+
+    events = recorder.all_events()
+
+    assert [event.event_type for event in events] == [
+        EventType.RUN_STARTED,
+        EventType.MODEL_CALLED,
+        EventType.RUN_COMPLETED,
+    ]
+
+    assert all(event.run_id == events[0].run_id for event in events)
+
+
+def test_agent_records_model_usage_and_latency() -> None:
+    recorder = EventRecorder()
+    usage = LLMUsage(input_tokens=120, output_tokens=42, total_tokens=162)
+    runner = AgentRunner(
+        llm=FakeLLM(responses=[FinalAnswer(content="done", usage=usage)]),
+        tool_executor=tool_executor,
+        event_recorder=recorder,
+    )
+
+    runner.run("test task")
+
+    model_event = next(
+        event
+        for event in recorder.all_events()
+        if event.event_type == EventType.MODEL_CALLED
+    )
+
+    assert "duration_ms" in model_event.metadata
+    assert model_event.metadata["input_tokens"] == 120
+    assert model_event.metadata["output_tokens"] == 42
+    assert model_event.metadata["total_tokens"] == 162
