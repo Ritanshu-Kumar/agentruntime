@@ -1,8 +1,7 @@
-from pathlib import Path
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from app.domain.observability.events import EventType, ExecutionEvent
 from app.domain.runs import Run, RunStatus
 from app.infrastructure.db.models import Base
 from app.infrastructure.postgres_run_repository import (
@@ -72,3 +71,24 @@ def test_save_missing_run_fails() -> None:
         assert False
     except ValueError:
         pass
+
+
+def test_execution_events_persist() -> None:
+    session = create_session()
+    repository = PostgresRunRepository(session)
+    run = Run(task="test")
+    repository.create(run)
+    event = ExecutionEvent(
+        run_id=run.id,
+        event_type=EventType.RUN_STARTED,
+        metadata={"task": "test"},
+    )
+
+    repository.save_execution_events(run.id, [event])
+    result = repository.get_execution_events(run.id)
+
+    assert len(result) == 1
+    assert result[0].id == event.id
+    assert result[0].run_id == run.id
+    assert result[0].event_type == EventType.RUN_STARTED
+    assert result[0].metadata == {"task": "test"}

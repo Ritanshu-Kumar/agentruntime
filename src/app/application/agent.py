@@ -23,6 +23,15 @@ class AgentRunner:
         self.run_repository = run_repository
         self.event_recorder = event_recorder
         self.max_steps = max_steps
+        if event_recorder is not None:
+            self.tool_executor.event_recorder = event_recorder
+
+    def _persist_events(self, run: Run) -> None:
+        if self.run_repository and self.event_recorder:
+            self.run_repository.save_execution_events(
+                run.id,
+                self.event_recorder.events(run.id),
+            )
 
     def run(self, task: str) -> str:
         run = Run(task=task)
@@ -37,12 +46,14 @@ class AgentRunner:
             run.status = "running"
             run.touch()
             self.run_repository.create(run)
+            self._persist_events(run)
 
         run.messages.append(UserMessage(content=task))
 
         if self.run_repository:
             run.touch()
             self.run_repository.save(run)
+            self._persist_events(run)
 
         for _ in range(self.max_steps):
             started = perf_counter()
@@ -60,6 +71,11 @@ class AgentRunner:
                             "error": str(exc),
                         },
                     )
+                if self.run_repository:
+                    run.status = "failed"
+                    run.touch()
+                    self.run_repository.save(run)
+                self._persist_events(run)
                 raise
 
             duration_ms = (perf_counter() - started) * 1000
@@ -92,6 +108,8 @@ class AgentRunner:
 
                 if self.run_repository:
                     self.run_repository.save(run)
+                    self._persist_events(run)
+                self._persist_events(run)
 
                 return response.content
 
@@ -133,6 +151,7 @@ class AgentRunner:
 
                 if self.run_repository:
                     self.run_repository.save(run)
+                    self._persist_events(run)
 
         run.status = "failed"
         run.touch()
@@ -146,5 +165,6 @@ class AgentRunner:
 
         if self.run_repository:
             self.run_repository.save(run)
+        self._persist_events(run)
 
         raise RuntimeError("maximum steps exceeded")

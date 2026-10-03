@@ -4,7 +4,10 @@ from pydantic import BaseModel
 from app.application.agent import AgentRunner
 from app.application.llm import FakeLLM, FinalAnswer, LLMUsage, ToolCall
 from app.application.tool_executor import ToolExecutor
+from app.domain.observability.events import EventType
+from app.domain.observability.recorder import EventRecorder
 from app.domain.tools import Permission, Tool, ToolRegistry, ToolResult
+from app.infrastructure.runs_repository import InMemoryRunRepository
 
 
 class ExampleInput(BaseModel):
@@ -88,10 +91,6 @@ def test_agent_stops_at_max_steps() -> None:
     with pytest.raises(RuntimeError, match="maximum steps"):
         agent.run("Loop forever")
 
-from app.domain.observability.events import EventType
-from app.domain.observability.recorder import EventRecorder
-
-
 def test_agent_records_execution_events() -> None:
     recorder = EventRecorder()
 
@@ -118,6 +117,55 @@ def test_agent_records_execution_events() -> None:
     ]
 
     assert all(event.run_id == events[0].run_id for event in events)
+
+
+def test_agent_persists_execution_events() -> None:
+    recorder = EventRecorder()
+    repository = InMemoryRunRepository()
+    runner = AgentRunner(
+        llm=FakeLLM(
+            responses=[
+                FinalAnswer(content="done"),
+            ]
+        ),
+        tool_executor=tool_executor,
+        run_repository=repository,
+        event_recorder=recorder,
+    )
+
+    result = runner.run("test task")
+
+    assert result == "done"
+    run = next(iter(repository._runs.values()))
+    events = repository.get_execution_events(run.id)
+    assert [event.event_type for event in events] == [
+        EventType.RUN_STARTED,
+        EventType.MODEL_CALLED,
+        EventType.RUN_COMPLETED,
+    ]
+
+
+def test_agent_persists_llm_failure() -> None:
+    recorder = EventRecorder()
+    repository = InMemoryRunRepository()
+    runner = AgentRunner(
+        llm=FakeLLM(responses=[]),
+        tool_executor=tool_executor,
+        run_repository=repository,
+        event_recorder=recorder,
+    )
+
+    with pytest.raises(RuntimeError, match="no responses remaining"):
+        runner.run("test task")
+
+    run = next(iter(repository._runs.values()))
+    assert run.status == "failed"
+    events = repository.get_execution_events(run.id)
+    assert [event.event_type for event in events] == [
+        EventType.RUN_STARTED,
+        EventType.RUN_FAILED,
+    ]
+    assert events[-1].metadata["error_type"] == "RuntimeError"
 
 
 def test_agent_records_model_usage_and_latency() -> None:
