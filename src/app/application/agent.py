@@ -109,7 +109,6 @@ class AgentRunner:
                 if self.run_repository:
                     self.run_repository.save(run)
                     self._persist_events(run)
-                self._persist_events(run)
 
                 return response.content
 
