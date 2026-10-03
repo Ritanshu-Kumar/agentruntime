@@ -16,3 +16,6 @@ class ToolNotFoundError(ToolError):
 
 class DuplicateToolError(ToolError):
     pass
+
+class ToolTimeoutError(ToolError):
+    pass

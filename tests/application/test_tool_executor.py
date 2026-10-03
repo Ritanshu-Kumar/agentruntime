@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 
+from app.application.retry import RetryPolicy
 from app.application.llm import ToolCall
 from app.application.tool_executor import ToolExecutor
 from app.domain.tools import Permission, Tool, ToolRegistry, ToolResult
@@ -54,3 +55,110 @@ def test_denies_missing_permission() -> None:
 
     assert result.success is False
     assert "Permission denied" in result.content
+
+def test_executor_retries_failed_tool():
+    class FlakyTool:
+        name = "flaky"
+        permissions = set()
+
+        def __init__(self):
+            self.calls = 0
+
+        def validate_input(self, arguments):
+            return arguments
+
+        def execute(self, arguments):
+            self.calls += 1
+
+            if self.calls < 3:
+                raise RuntimeError("temporary failure")
+
+            return ToolResult.ok("success")
+
+    tool = FlakyTool()
+
+    registry = ToolRegistry()
+    registry.register(tool)
+
+    executor = ToolExecutor(
+        registry,
+        set(),
+        RetryPolicy(max_attempts=3),
+    )
+
+    result = executor.execute(
+        ToolCall(
+            tool_name="flaky",
+            arguments={},
+        )
+    )
+
+    assert result.success is True
+    assert result.content == "success"
+    assert tool.calls == 3
+
+def test_executor_does_not_retry_permission_failure():
+    class ProtectedTool:
+        name = "protected"
+        permissions = {"filesystem.read"}
+
+        def validate_input(self, arguments):
+            return arguments
+
+        def execute(self, arguments):
+            raise AssertionError("Tool should never execute")
+
+    registry = ToolRegistry()
+    registry.register(ProtectedTool())
+
+    executor = ToolExecutor(
+        registry,
+        set(),
+        RetryPolicy(max_attempts=3),
+    )
+
+    result = executor.execute(
+        ToolCall(
+            tool_name="protected",
+            arguments={},
+        )
+    )
+
+    assert result.success is False
+    assert "Permission denied" in result.content
+
+def test_executor_stops_after_max_attempts():
+    class AlwaysFailingTool:
+        name = "failing"
+        permissions = set()
+
+        def __init__(self):
+            self.calls = 0
+
+        def validate_input(self, arguments):
+            return arguments
+
+        def execute(self, arguments):
+            self.calls += 1
+            raise RuntimeError("permanent failure")
+
+    tool = AlwaysFailingTool()
+
+    registry = ToolRegistry()
+    registry.register(tool)
+
+    executor = ToolExecutor(
+        registry,
+        set(),
+        RetryPolicy(max_attempts=3),
+    )
+
+    result = executor.execute(
+        ToolCall(
+            tool_name="failing",
+            arguments={},
+        )
+    )
+
+    assert result.success is False
+    assert tool.calls == 3

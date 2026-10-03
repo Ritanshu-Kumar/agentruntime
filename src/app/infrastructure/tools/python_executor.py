@@ -4,6 +4,7 @@ import sys
 from pydantic import BaseModel
 
 from app.domain.tools import Permission, Tool, ToolResult
+from app.domain.tools.errors import ToolTimeoutError
 
 
 class PythonInput(BaseModel):
@@ -16,10 +17,13 @@ class PythonExecutorTool(Tool[PythonInput]):
     input_schema = PythonInput
     permissions = frozenset({Permission.PYTHON_EXECUTE})
 
-    def __init__(self, timeout: float = 5.0) -> None:
-        self.timeout = timeout
+    def __init__(self, timeout: float = 5.0, timeout_seconds: float | None = None) -> None:
+        self.timeout = timeout if timeout_seconds is None else timeout_seconds
 
-    def execute(self, arguments: PythonInput) -> ToolResult:
+    def execute(self, arguments: PythonInput | dict[str, str]) -> ToolResult:
+        if isinstance(arguments, dict):
+            arguments = self.validate_input(arguments)
+
         try:
             result = subprocess.run(
                 [sys.executable, "-c", arguments.code],

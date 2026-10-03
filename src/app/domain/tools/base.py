@@ -35,7 +35,14 @@ class Tool(ABC, Generic[InputModelT]):
     input_schema: type[InputModelT]
     permissions: frozenset[Permission] = frozenset()
 
-    def validate_input(self, arguments: dict[str, Any]) -> InputModelT:
+    def validate_input(
+        self, arguments: dict[str, Any]
+    ) -> InputModelT | dict[str, Any]:
+        if not isinstance(self.input_schema, type) or not issubclass(
+            self.input_schema, BaseModel
+        ):
+            return arguments
+
         try:
             return self.input_schema.model_validate(arguments)
         except ValidationError as exc:

@@ -69,3 +69,15 @@ def test_declares_python_permission() -> None:
     tool = PythonExecutorTool()
 
     assert Permission.PYTHON_EXECUTE in tool.permissions
+
+def test_python_executor_timeout():
+    tool = PythonExecutorTool(timeout_seconds=0.1)
+
+    result = tool.execute(
+        {
+            "code": "import time; time.sleep(1)"
+        }
+    )
+
+    assert result.success is False
+    assert "timed out" in result.error.lower()
