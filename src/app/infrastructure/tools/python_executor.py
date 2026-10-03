@@ -31,8 +31,8 @@ class PythonExecutorTool(Tool[PythonInput]):
                 text=True,
                 timeout=self.timeout,
             )
-        except subprocess.TimeoutExpired:
-            return ToolResult.failure("Python execution timed out.")
+        except subprocess.TimeoutExpired as exc:
+            raise ToolTimeoutError("Python execution timed out.") from exc
         except OSError as exc:
             return ToolResult.failure(
                 f"Unable to start Python process: {exc}"

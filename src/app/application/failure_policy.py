@@ -2,6 +2,7 @@ from app.domain.tools.errors import (
     PermissionDeniedError,
     ToolNotFoundError,
     ToolTimeoutError,
+    ToolTransientError,
     ToolValidationError,
 )
 
@@ -17,7 +18,7 @@ def is_retryable_error(error: Exception) -> bool:
     ):
         return False
 
-    if isinstance(error, ToolTimeoutError):
+    if isinstance(error, (ToolTimeoutError, ToolTransientError)):
         return True
 
-    return True
+    return False

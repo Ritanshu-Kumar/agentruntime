@@ -3,6 +3,7 @@ from app.application.llm import FakeLLM, FinalAnswer, ToolCall
 from app.application.retry import RetryPolicy
 from app.application.tool_executor import ToolExecutor
 from app.domain.tools.base import Tool, ToolResult
+from app.domain.tools.errors import ToolTransientError
 from app.domain.tools.registry import ToolRegistry
 
 
@@ -23,7 +24,7 @@ class FlakyTool(Tool[FlakyToolInput]):
         self.calls += 1
 
         if self.calls < 3:
-            raise RuntimeError("temporary failure")
+            raise ToolTransientError("temporary failure")
 
         return ToolResult.ok("recovered")
 

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from enum import StrEnum
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -6,7 +7,7 @@ from pydantic import BaseModel, Field
 from app.application.messages import Message
 
 
-class RunStatus(str):
+class RunStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -16,7 +17,7 @@ class RunStatus(str):
 class Run(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     task: str
-    status: str = RunStatus.PENDING
+    status: RunStatus = RunStatus.PENDING
     messages: list[Message] = Field(default_factory=list)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)

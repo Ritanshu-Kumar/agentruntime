@@ -4,6 +4,7 @@ from app.application.retry import RetryPolicy
 from app.application.llm import ToolCall
 from app.application.tool_executor import ToolExecutor
 from app.domain.tools import Permission, Tool, ToolRegistry, ToolResult
+from app.domain.tools.errors import ToolTransientError
 
 
 class ExampleInput(BaseModel):
@@ -71,7 +72,7 @@ def test_executor_retries_failed_tool():
             self.calls += 1
 
             if self.calls < 3:
-                raise RuntimeError("temporary failure")
+                raise ToolTransientError("temporary failure")
 
             return ToolResult.ok("success")
 
@@ -140,7 +141,7 @@ def test_executor_stops_after_max_attempts():
 
         def execute(self, arguments):
             self.calls += 1
-            raise RuntimeError("permanent failure")
+            raise ToolTransientError("permanent failure")
 
     tool = AlwaysFailingTool()
 

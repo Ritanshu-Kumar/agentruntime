@@ -1,4 +1,7 @@
+import pytest
+
 from app.domain.tools import Permission
+from app.domain.tools.errors import ToolTimeoutError
 from app.infrastructure.tools.python_executor import PythonExecutorTool
 
 
@@ -59,10 +62,8 @@ def test_timeout() -> None:
         }
     )
 
-    result = tool.execute(arguments)
-
-    assert result.success is False
-    assert result.error == "Python execution timed out."
+    with pytest.raises(ToolTimeoutError, match="Python execution timed out"):
+        tool.execute(arguments)
 
 
 def test_declares_python_permission() -> None:
@@ -73,11 +74,9 @@ def test_declares_python_permission() -> None:
 def test_python_executor_timeout():
     tool = PythonExecutorTool(timeout_seconds=0.1)
 
-    result = tool.execute(
-        {
-            "code": "import time; time.sleep(1)"
-        }
-    )
-
-    assert result.success is False
-    assert "timed out" in result.error.lower()
+    with pytest.raises(ToolTimeoutError, match="timed out"):
+        tool.execute(
+            {
+                "code": "import time; time.sleep(1)"
+            }
+        )
