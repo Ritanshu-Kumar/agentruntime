@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.application.messages import (
     AssistantMessage,
+    SystemMessage,
     ToolMessage,
     UserMessage,
 )
@@ -119,7 +120,13 @@ class PostgresRunRepository(RunRepository):
 
     def _save_messages(self, run: Run) -> None:
         for message in run.messages:
-            if isinstance(message, UserMessage):
+            if isinstance(message, SystemMessage):
+                record = MessageRecord(
+                    run_id=str(run.id),
+                    role="system",
+                    content=message.content,
+                )
+            elif isinstance(message, UserMessage):
                 record = MessageRecord(
                     run_id=str(run.id),
                     role="user",
@@ -160,7 +167,9 @@ class PostgresRunRepository(RunRepository):
         messages = []
 
         for record in records:
-            if record.role == "user":
+            if record.role == "system":
+                messages.append(SystemMessage(content=record.content))
+            elif record.role == "user":
                 messages.append(
                     UserMessage(content=record.content)
                 )

@@ -2,13 +2,20 @@ from time import perf_counter
 from uuid import UUID
 
 from app.application.llm import FinalAnswer, LLMClient, ToolCall
-from app.application.messages import AssistantMessage, UserMessage
+from app.application.messages import (
+    AssistantMessage,
+    SystemMessage,
+    UserMessage,
+)
 from app.application.tool_executor import ToolExecutor
 from app.domain.approval.errors import ApprovalRequiredError
 from app.domain.approval.models import ApprovalStatus
 from app.domain.approval.repository import ApprovalRepository
+from app.domain.memory.context import format_memory_context
+from app.domain.memory.repository import MemoryStore
 from app.domain.observability.events import EventType
 from app.domain.observability.recorder import EventRecorder
+from app.domain.policy.models import AgentPolicy
 from app.domain.runs.models import Run, RunStatus
 from app.domain.runs.repository import RunRepository
 
@@ -20,15 +27,22 @@ class AgentRunner:
         tool_executor: ToolExecutor,
         run_repository: RunRepository | None = None,
         event_recorder: EventRecorder | None = None,
-        max_steps: int = 10,
+        max_steps: int | None = None,
         approval_repository: ApprovalRepository | None = None,
+        memory_store: MemoryStore | None = None,
+        memory_namespace: str = "default",
+        policy: AgentPolicy | None = None,
     ):
         self.llm = llm
         self.tool_executor = tool_executor
         self.run_repository = run_repository
         self.event_recorder = event_recorder
-        self.max_steps = max_steps
+        self.policy = policy or AgentPolicy(
+            max_steps=max_steps if max_steps is not None else 10,
+        )
         self.approval_repository = approval_repository
+        self.memory_store = memory_store
+        self.memory_namespace = memory_namespace
         self.last_run_id = None
         self.last_tool_calls = []
         self.last_tool_arguments = []
@@ -45,7 +59,7 @@ class AgentRunner:
             )
 
     def _continue_run(self, run: Run) -> str:
-        for _ in range(self.max_steps):
+        for _ in range(self.policy.max_steps):
             started = perf_counter()
             try:
                 response = self.llm.respond(
@@ -187,6 +201,18 @@ class AgentRunner:
             self._persist_events(run)
 
         run.messages.append(UserMessage(content=task))
+        if self.policy.allow_memory and self.memory_store is not None:
+            memories = self.memory_store.search(
+                self.memory_namespace,
+                task,
+                limit=5,
+            )
+            memory_context = format_memory_context(memories)
+            if memory_context:
+                run.messages.insert(
+                    0,
+                    SystemMessage(content=memory_context),
+                )
 
         if self.run_repository:
             run.touch()

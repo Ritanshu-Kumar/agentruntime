@@ -6,6 +6,7 @@ from app.application.llm import FakeLLM, FinalAnswer, LLMUsage, ToolCall
 from app.application.tool_executor import ToolExecutor
 from app.domain.observability.events import EventType
 from app.domain.observability.recorder import EventRecorder
+from app.domain.policy.models import AgentPolicy
 from app.domain.tools import Permission, ToolRegistry
 from app.infrastructure.runs_repository import InMemoryRunRepository
 from tests.support.tools import ExampleTool
@@ -76,6 +77,28 @@ def test_agent_stops_at_max_steps() -> None:
 
     with pytest.raises(RuntimeError, match="maximum steps"):
         agent.run("Loop forever")
+
+
+def test_agent_policy_controls_max_steps() -> None:
+    llm = FakeLLM(
+        [
+            ToolCall(
+                tool_name="example",
+                arguments={"value": 1},
+            )
+        ]
+    )
+    agent = AgentRunner(
+        llm,
+        make_executor(),
+        policy=AgentPolicy(max_steps=1),
+    )
+
+    with pytest.raises(RuntimeError, match="maximum steps"):
+        agent.run("Loop forever")
+
+    assert llm.calls == 1
+
 
 def test_agent_records_execution_events() -> None:
     recorder = EventRecorder()

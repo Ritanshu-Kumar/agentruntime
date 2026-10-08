@@ -3,6 +3,11 @@ from typing import Literal
 from pydantic import BaseModel
 
 
+class SystemMessage(BaseModel):
+    role: Literal["system"] = "system"
+    content: str
+
+
 class UserMessage(BaseModel):
     role: Literal["user"] = "user"
     content: str
@@ -20,4 +25,4 @@ class ToolMessage(BaseModel):
     content: str
 
 
-Message = UserMessage | AssistantMessage | ToolMessage
+Message = SystemMessage | UserMessage | AssistantMessage | ToolMessage
