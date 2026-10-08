@@ -12,6 +12,7 @@ class RunStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    WAITING_APPROVAL = "waiting_approval"
 
 
 class Run(BaseModel):

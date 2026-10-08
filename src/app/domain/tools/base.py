@@ -6,6 +6,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.domain.tools.errors import ToolValidationError
 from app.domain.tools.permissions import Permission
+from app.domain.tools.safety import SafetyLevel
 
 InputModelT = TypeVar("InputModelT", bound=BaseModel)
 
@@ -34,6 +35,7 @@ class Tool(ABC, Generic[InputModelT]):
     description: str
     input_schema: type[InputModelT]
     permissions: frozenset[Permission] = frozenset()
+    safety_level: SafetyLevel = SafetyLevel.SAFE
 
     def validate_input(
         self, arguments: dict[str, Any]

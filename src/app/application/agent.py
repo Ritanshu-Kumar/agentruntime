@@ -1,11 +1,15 @@
 from time import perf_counter
+from uuid import UUID
 
 from app.application.llm import FinalAnswer, LLMClient, ToolCall
 from app.application.messages import AssistantMessage, UserMessage
 from app.application.tool_executor import ToolExecutor
+from app.domain.approval.errors import ApprovalRequiredError
+from app.domain.approval.models import ApprovalStatus
+from app.domain.approval.repository import ApprovalRepository
 from app.domain.observability.events import EventType
 from app.domain.observability.recorder import EventRecorder
-from app.domain.runs.models import Run
+from app.domain.runs.models import Run, RunStatus
 from app.domain.runs.repository import RunRepository
 
 
@@ -17,17 +21,21 @@ class AgentRunner:
         run_repository: RunRepository | None = None,
         event_recorder: EventRecorder | None = None,
         max_steps: int = 10,
+        approval_repository: ApprovalRepository | None = None,
     ):
         self.llm = llm
         self.tool_executor = tool_executor
         self.run_repository = run_repository
         self.event_recorder = event_recorder
         self.max_steps = max_steps
+        self.approval_repository = approval_repository
         self.last_run_id = None
         self.last_tool_calls = []
         self.last_tool_arguments = []
         if event_recorder is not None:
             self.tool_executor.event_recorder = event_recorder
+        if approval_repository is not None:
+            self.tool_executor.approval_repository = approval_repository
 
     def _persist_events(self, run: Run) -> None:
         if self.run_repository and self.event_recorder:
@@ -36,31 +44,7 @@ class AgentRunner:
                 self.event_recorder.events(run.id),
             )
 
-    def run(self, task: str) -> str:
-        run = Run(task=task)
-        self.last_run_id = run.id
-        self.last_tool_calls = []
-        self.last_tool_arguments = []
-
-        if self.event_recorder:
-            self.event_recorder.record(
-                run.id,
-                EventType.RUN_STARTED,
-            )
-
-        if self.run_repository:
-            run.status = "running"
-            run.touch()
-            self.run_repository.create(run)
-            self._persist_events(run)
-
-        run.messages.append(UserMessage(content=task))
-
-        if self.run_repository:
-            run.touch()
-            self.run_repository.save(run)
-            self._persist_events(run)
-
+    def _continue_run(self, run: Run) -> str:
         for _ in range(self.max_steps):
             started = perf_counter()
             try:
@@ -78,7 +62,7 @@ class AgentRunner:
                         },
                     )
                 if self.run_repository:
-                    run.status = "failed"
+                    run.status = RunStatus.FAILED
                     run.touch()
                     self.run_repository.save(run)
                 self._persist_events(run)
@@ -103,7 +87,7 @@ class AgentRunner:
                 run.messages.append(
                     AssistantMessage(content=response.content)
                 )
-                run.status = "completed"
+                run.status = RunStatus.COMPLETED
                 run.touch()
 
                 if self.event_recorder:
@@ -128,10 +112,18 @@ class AgentRunner:
                 )
 
                 tool_started = perf_counter()
-                tool_message = self.tool_executor.execute(
-                    response,
-                    run_id=run.id,
-                )
+                try:
+                    tool_message = self.tool_executor.execute(
+                        response,
+                        run_id=run.id,
+                    )
+                except ApprovalRequiredError:
+                    run.status = RunStatus.WAITING_APPROVAL
+                    run.touch()
+                    if self.run_repository:
+                        self.run_repository.save(run)
+                    self._persist_events(run)
+                    raise
                 tool_duration_ms = (perf_counter() - tool_started) * 1000
 
                 if self.event_recorder:
@@ -160,7 +152,7 @@ class AgentRunner:
                     self.run_repository.save(run)
                     self._persist_events(run)
 
-        run.status = "failed"
+        run.status = RunStatus.FAILED
         run.touch()
 
         if self.event_recorder:
@@ -175,3 +167,76 @@ class AgentRunner:
         self._persist_events(run)
 
         raise RuntimeError("maximum steps exceeded")
+
+    def run(self, task: str) -> str:
+        run = Run(task=task)
+        self.last_run_id = run.id
+        self.last_tool_calls = []
+        self.last_tool_arguments = []
+
+        if self.event_recorder:
+            self.event_recorder.record(
+                run.id,
+                EventType.RUN_STARTED,
+            )
+
+        if self.run_repository:
+            run.status = RunStatus.RUNNING
+            run.touch()
+            self.run_repository.create(run)
+            self._persist_events(run)
+
+        run.messages.append(UserMessage(content=task))
+
+        if self.run_repository:
+            run.touch()
+            self.run_repository.save(run)
+            self._persist_events(run)
+
+        return self._continue_run(run)
+
+    def resume(self, approval_id: UUID) -> str:
+        if self.approval_repository is None:
+            raise RuntimeError(
+                "Approval repository is required to resume an approval"
+            )
+        if self.run_repository is None:
+            raise RuntimeError(
+                "Run repository is required to resume an approval"
+            )
+
+        request = self.approval_repository.get(approval_id)
+        if request is None:
+            raise ValueError(f"Approval request '{approval_id}' not found")
+
+        run = self.run_repository.get(request.run_id)
+        if run is None:
+            raise ValueError(f"Run '{request.run_id}' not found")
+
+        self.last_run_id = run.id
+
+        if request.status == ApprovalStatus.PENDING:
+            raise ValueError("Approval request is still pending")
+
+        if request.status == ApprovalStatus.REJECTED:
+            run.status = RunStatus.FAILED
+            run.touch()
+            self.run_repository.save(run)
+            self._persist_events(run)
+            raise ValueError("Approval request was rejected")
+
+        if request.status != ApprovalStatus.APPROVED:
+            raise ValueError("Approval request has not been approved")
+
+        run.status = RunStatus.RUNNING
+        run.touch()
+        self.run_repository.save(run)
+        self._persist_events(run)
+
+        tool_message = self.tool_executor.execute_approved(request)
+        run.messages.append(tool_message)
+        run.touch()
+        self.run_repository.save(run)
+        self._persist_events(run)
+
+        return self._continue_run(run)

@@ -24,3 +24,6 @@ class ToolTransientError(ToolError):
 
 class ToolTimeoutError(ToolTransientError):
     pass
+
+class SafetyDeniedError(ToolError):
+    pass

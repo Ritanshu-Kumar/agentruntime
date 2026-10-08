@@ -40,3 +40,4 @@ def test_event_types() -> None:
     assert EventType.RETRY == "retry"
     assert EventType.RUN_COMPLETED == "run.completed"
     assert EventType.RUN_FAILED == "run.failed"
+    assert EventType.TOOL_BLOCKED == "tool.blocked"

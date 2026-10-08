@@ -14,6 +14,10 @@ class EventType(StrEnum):
     RETRY = "retry"
     RUN_COMPLETED = "run.completed"
     RUN_FAILED = "run.failed"
+    TOOL_BLOCKED = "tool.blocked"
+    APPROVAL_REQUESTED = "approval.requested"
+    APPROVAL_GRANTED = "approval.granted"
+    APPROVAL_REJECTED = "approval.rejected"
 
 
 class ExecutionEvent(BaseModel):
