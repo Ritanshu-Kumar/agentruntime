@@ -23,6 +23,9 @@ class AgentRunner:
         self.run_repository = run_repository
         self.event_recorder = event_recorder
         self.max_steps = max_steps
+        self.last_run_id = None
+        self.last_tool_calls = []
+        self.last_tool_arguments = []
         if event_recorder is not None:
             self.tool_executor.event_recorder = event_recorder
 
@@ -35,6 +38,9 @@ class AgentRunner:
 
     def run(self, task: str) -> str:
         run = Run(task=task)
+        self.last_run_id = run.id
+        self.last_tool_calls = []
+        self.last_tool_arguments = []
 
         if self.event_recorder:
             self.event_recorder.record(
@@ -113,6 +119,8 @@ class AgentRunner:
                 return response.content
 
             if isinstance(response, ToolCall):
+                self.last_tool_calls.append(response.tool_name)
+                self.last_tool_arguments.append(response.arguments)
                 run.messages.append(
                     AssistantMessage(
                         content=f"Calling tool: {response.tool_name}"

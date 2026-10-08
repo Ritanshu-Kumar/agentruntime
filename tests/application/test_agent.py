@@ -1,28 +1,14 @@
 import pytest
-from pydantic import BaseModel
+
 
 from app.application.agent import AgentRunner
 from app.application.llm import FakeLLM, FinalAnswer, LLMUsage, ToolCall
 from app.application.tool_executor import ToolExecutor
 from app.domain.observability.events import EventType
 from app.domain.observability.recorder import EventRecorder
-from app.domain.tools import Permission, Tool, ToolRegistry, ToolResult
+from app.domain.tools import Permission, ToolRegistry
 from app.infrastructure.runs_repository import InMemoryRunRepository
-
-
-class ExampleInput(BaseModel):
-    value: int
-
-
-class ExampleTool(Tool[ExampleInput]):
-    name = "example"
-    description = "Example tool"
-    input_schema = ExampleInput
-    permissions = frozenset({Permission.FILESYSTEM_READ})
-
-    def execute(self, arguments: ExampleInput) -> ToolResult:
-        return ToolResult.ok(arguments.value * 2)
-
+from tests.support.tools import ExampleTool
 
 def make_executor() -> ToolExecutor:
     registry = ToolRegistry()
