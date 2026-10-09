@@ -4,6 +4,8 @@ from fastapi.responses import HTMLResponse
 
 router = APIRouter(tags=["dashboard"])
 
+
+
 DASHBOARD_HTML = """
 <!doctype html>
 <html lang="en">
@@ -235,6 +237,86 @@ DASHBOARD_HTML = """
       .status-item:last-child { border-bottom: 0; }
       .page-heading { align-items: start; flex-direction: column; }
     }
+
+  .history {
+    margin: 0 0 28px;
+    border-top: 1px solid #34393d;
+    border-bottom: 1px solid #34393d;
+    padding: 18px 0;
+  }
+
+  .history-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .history-heading p {
+    margin-bottom: 0;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    text-align: left;
+    font-size: 12px;
+  }
+
+  th {
+    color: #929ba0;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+  }
+
+  th, td {
+    border-bottom: 1px solid #292e32;
+    padding: 11px 12px;
+    white-space: nowrap;
+  }
+
+  td:first-child {
+    white-space: normal;
+    min-width: 180px;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .run-link {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: #b5c9b9;
+    font: 12px Consolas, monospace;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .run-link:hover {
+    text-decoration: underline;
+    background: transparent;
+  }
+
+  .history-heading button {
+    width: auto;
+    margin-top: 0;
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 760px) {
+    .history-heading {
+      align-items: flex-start;
+    }
+  }
+
   </style>
 </head>
 <body>
@@ -276,6 +358,35 @@ DASHBOARD_HTML = """
         <div id="failed" class="value">—</div>
       </div>
     </section>
+
+    <section class="history">
+      <div class="history-heading">
+        <div>
+          <h2>Recent runs</h2>
+          <p class="muted small">Latest executions from the run repository.</p>
+        </div>
+        <button id="refreshRuns" class="secondary" type="button">
+          Refresh runs
+        </button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th>Status</th>
+              <th>Run ID</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody id="runsBody">
+            <tr><td colspan="4" class="muted">Loading runs…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
 
     <div class="workspace">
       <section class="section">
@@ -327,12 +438,13 @@ DASHBOARD_HTML = """
   <script>
     const $ = (id) => document.getElementById(id);
     let latestRunId = null;
+    let apiKey = "";
 
     async function request(path, options = {}) {
       const headers = { ...(options.headers || {}) };
 
       if (path === "/metrics" || path === "/runs" || path.startsWith("/runs/")) {
-        headers["X-API-Key"] = $("apiKey").value.trim();
+        headers["X-API-Key"] = apiKey;
       }
 
       if (options.body) headers["Content-Type"] = "application/json";
@@ -422,9 +534,77 @@ DASHBOARD_HTML = """
     });
 
     $("refresh").addEventListener("click", refreshStatus);
-    $("saveKey").addEventListener("click", refreshStatus);
+    $("saveKey").addEventListener("click", async () => {
+      apiKey = $("apiKey").value.trim();
+      await refreshStatus();
+      await refreshRuns();
+    });
+    $("refreshRuns").addEventListener("click", refreshRuns);
 
-    refreshStatus();
+    setHealth("health", true, "Online", "Offline");
+    setHealth("ready", true, "Ready", "Unavailable");
+    $("message").textContent = "Enter your API key and click Apply key.";
+
+    async function refreshRuns() {
+      const body = $("runsBody");
+      body.innerHTML = '<tr><td colspan="4">Loading runs…</td></tr>';
+
+      try {
+        const runs = await readJson("/runs?limit=20", {
+          headers: {
+            "X-API-Key": $("apiKey").value.trim()
+          }
+        });
+
+        if (runs.length === 0) {
+          body.innerHTML =
+            '<tr><td colspan="4" class="muted">No runs recorded yet.</td></tr>';
+          return;
+        }
+
+        body.replaceChildren();
+
+        for (const run of runs) {
+          const row = document.createElement("tr");
+
+          const task = document.createElement("td");
+          task.textContent = run.task;
+
+          const statusCell = document.createElement("td");
+          statusCell.textContent = run.status.toUpperCase();
+
+          const idCell = document.createElement("td");
+          const idButton = document.createElement("button");
+          idButton.className = "run-link";
+          idButton.type = "button";
+          idButton.textContent = run.id.slice(0, 8) + "…";
+          idButton.title = run.id;
+          idButton.addEventListener("click", () => {
+            $("result").textContent = JSON.stringify(run, null, 2);
+            $("runId").textContent = "Run ID: " + run.id;
+            $("runStatus").textContent = run.status.toUpperCase();
+            $("runStatus").className = "run-status " + run.status;
+          });
+          idCell.appendChild(idButton);
+
+          const updated = document.createElement("td");
+          updated.textContent = new Date(run.updated_at).toLocaleString();
+
+          row.append(task, statusCell, idCell, updated);
+          body.appendChild(row);
+        }
+      } catch (error) {
+        body.replaceChildren();
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 4;
+        cell.textContent = "Could not load runs: " + error.message;
+        cell.className = "muted";
+        row.appendChild(cell);
+        body.appendChild(row);
+      }
+    }
+
   </script>
 </body>
 </html>
