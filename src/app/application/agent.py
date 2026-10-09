@@ -1,3 +1,4 @@
+import logging
 from time import perf_counter
 from uuid import UUID
 
@@ -18,6 +19,8 @@ from app.domain.observability.recorder import EventRecorder
 from app.domain.policy.models import AgentPolicy
 from app.domain.runs.models import Run, RunStatus
 from app.domain.runs.repository import RunRepository
+
+logger = logging.getLogger(__name__)
 
 
 class AgentRunner:
@@ -66,6 +69,14 @@ class AgentRunner:
                     [message.model_dump() for message in run.messages]
                 )
             except Exception as exc:
+                logger.error(
+                    "Model call failed",
+                    extra={
+                        "event": "model.failed",
+                        "run_id": str(run.id),
+                        "error_type": type(exc).__name__,
+                    },
+                )
                 if self.event_recorder:
                     self.event_recorder.record(
                         run.id,
@@ -85,6 +96,18 @@ class AgentRunner:
             duration_ms = (perf_counter() - started) * 1000
             usage = getattr(response, "usage", None)
 
+            logger.info(
+                "Model call completed",
+                extra={
+                    "event": "model.called",
+                    "run_id": str(run.id),
+                    "duration_ms": round(duration_ms, 2),
+                    "input_tokens": usage.input_tokens if usage else 0,
+                    "output_tokens": usage.output_tokens if usage else 0,
+                    "total_tokens": usage.total_tokens if usage else 0,
+                },
+            )
+
             if self.event_recorder:
                 self.event_recorder.record(
                     run.id,
@@ -103,6 +126,14 @@ class AgentRunner:
                 )
                 run.status = RunStatus.COMPLETED
                 run.touch()
+
+                logger.info(
+                    "Agent run completed",
+                    extra={
+                        "event": "run.completed",
+                        "run_id": str(run.id),
+                    },
+                )
 
                 if self.event_recorder:
                     self.event_recorder.record(
@@ -138,6 +169,17 @@ class AgentRunner:
                         self.run_repository.save(run)
                     self._persist_events(run)
                     raise
+                except Exception as exc:
+                    logger.error(
+                        "Tool execution failed",
+                        extra={
+                            "event": "tool.failed",
+                            "run_id": str(run.id),
+                            "tool_name": response.tool_name,
+                            "error_type": type(exc).__name__,
+                        },
+                    )
+                    raise
                 tool_duration_ms = (perf_counter() - tool_started) * 1000
 
                 if self.event_recorder:
@@ -158,6 +200,17 @@ class AgentRunner:
                             "success": tool_message.success,
                         },
                     )
+
+                logger.info(
+                    "Tool execution completed",
+                    extra={
+                        "event": "tool.completed",
+                        "run_id": str(run.id),
+                        "tool_name": response.tool_name,
+                        "duration_ms": round(tool_duration_ms, 2),
+                        "success": tool_message.success,
+                    },
+                )
 
                 run.messages.append(tool_message)
                 run.touch()
@@ -180,11 +233,26 @@ class AgentRunner:
             self.run_repository.save(run)
         self._persist_events(run)
 
+        logger.error(
+            "Agent run failed",
+            extra={
+                "event": "run.failed",
+                "run_id": str(run.id),
+                "error_type": "MaxStepsExceeded",
+            },
+        )
         raise RuntimeError("maximum steps exceeded")
 
     def run(self, task: str) -> str:
         run = Run(task=task)
         self.last_run_id = run.id
+        logger.info(
+            "Agent run started",
+            extra={
+                "event": "run.started",
+                "run_id": str(run.id),
+            },
+        )
         self.last_tool_calls = []
         self.last_tool_arguments = []
 
