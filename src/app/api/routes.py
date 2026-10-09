@@ -12,6 +12,7 @@ from app.api.schemas import (
 from app.application.agent import AgentRunner
 from app.domain.approval.errors import ApprovalRequiredError
 from app.domain.runs.models import RunStatus
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 
 router = APIRouter(
@@ -92,14 +93,26 @@ def create_run(
     return _to_response(run)
 
 
-@router.get(
-    "/{run_id}",
-    response_model=RunResponse,
-)
+@router.get("", response_model=list[RunResponse])
+def list_runs(
+    limit: int = Query(default=20, ge=1, le=100),
+    runner: AgentRunner = Depends(get_agent_runner),
+) -> list[RunResponse]:
+    if runner.run_repository is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Run repository is not configured",
+        )
+
+    runs = runner.run_repository.list_runs(limit=limit)
+    return [_to_response(run) for run in runs]
+
+
+@router.get("/{run_id}", response_model=RunResponse)
 def get_run(
     run_id: UUID,
     runner: AgentRunner = Depends(get_agent_runner),
-):
+) -> RunResponse:
     if runner.run_repository is None:
         raise HTTPException(
             status_code=500,
@@ -107,7 +120,6 @@ def get_run(
         )
 
     run = runner.run_repository.get(run_id)
-
     if run is None:
         raise HTTPException(
             status_code=404,

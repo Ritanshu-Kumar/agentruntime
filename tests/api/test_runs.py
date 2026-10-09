@@ -11,6 +11,7 @@ from app.domain.tools.registry import ToolRegistry
 from app.main import app
 
 
+
 class FakeRunRepository(RunRepository):
     def __init__(self):
         self.runs: dict[UUID, Run] = {}
@@ -21,16 +22,21 @@ class FakeRunRepository(RunRepository):
 
     def get(self, run_id: UUID) -> Run | None:
         run = self.runs.get(run_id)
-
-        if run is None:
-            return None
-
-        return run.model_copy(deep=True)
+        return run.model_copy(deep=True) if run else None
 
     def save(self, run: Run) -> Run:
         self.runs[run.id] = run.model_copy(deep=True)
         return run
 
+    def list_runs(self, limit: int = 20) -> list[Run]:
+        return [
+            run.model_copy(deep=True)
+            for run in sorted(
+                self.runs.values(),
+                key=lambda item: item.created_at,
+                reverse=True,
+            )[:limit]
+        ]
 
 def make_runner():
     repository = FakeRunRepository()
@@ -136,3 +142,27 @@ def test_get_missing_run():
     )
 
     assert response.status_code == 404
+
+def test_list_runs_requires_api_key():
+    response = TestClient(app).get("/runs")
+    assert response.status_code == 401
+
+
+def test_list_runs_returns_created_run():
+    runner = make_runner()
+    app.state.agent_runner = runner
+    client = TestClient(app)
+
+    headers = {"X-API-Key": "development-api-key"}
+    created = client.post(
+        "/runs",
+        json={"task": "List this run"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+
+    response = client.get("/runs?limit=10", headers=headers)
+
+    assert response.status_code == 200
+    runs = response.json()
+    assert any(run["id"] == created.json()["id"] for run in runs)

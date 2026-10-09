@@ -27,3 +27,6 @@ class RunRepository(ABC):
 
     def get_execution_events(self, run_id: UUID) -> list[ExecutionEvent]:
         return []
+
+    def list_runs(self, limit: int = 20) -> list[Run]:
+        return []

@@ -39,3 +39,13 @@ class InMemoryRunRepository(RunRepository):
 
     def get_execution_events(self, run_id: UUID) -> list[ExecutionEvent]:
         return list(self._execution_events.get(run_id, []))
+
+    def list_runs(self, limit: int = 20) -> list[Run]:
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+
+        return sorted(
+            self._runs.values(),
+            key=lambda run: run.created_at,
+            reverse=True,
+        )[:limit]
