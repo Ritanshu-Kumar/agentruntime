@@ -77,6 +77,9 @@ def test_create_run():
         json={
             "task": "Say hello",
         },
+        headers={
+        "X-API-Key": "development-api-key",
+        },
     )
 
     assert response.status_code == 201
@@ -99,6 +102,7 @@ def test_get_run():
         json={
             "task": "Say hello",
         },
+        headers={"X-API-Key": "development-api-key"},
     )
 
     assert created.status_code == 201
@@ -106,7 +110,10 @@ def test_get_run():
     run_id = created.json()["id"]
 
     response = client.get(
-        f"/runs/{run_id}"
+        f"/runs/{run_id}",
+        headers={
+        "X-API-Key": "development-api-key",
+        },
     )
 
     assert response.status_code == 200
@@ -124,7 +131,8 @@ def test_get_missing_run():
     client = TestClient(app)
 
     response = client.get(
-        "/runs/00000000-0000-0000-0000-000000000000"
+        "/runs/00000000-0000-0000-0000-000000000000",
+        headers={"X-API-Key": "development-api-key"},
     )
 
     assert response.status_code == 404

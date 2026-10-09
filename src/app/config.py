@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     app_name: str = "AgentRuntime"
     app_env: str = "development"
     log_level: str = "INFO"
+    api_key: str = "development-api-key"
 
     database_url: str = (
         "postgresql+psycopg://agentruntime:agentruntime"

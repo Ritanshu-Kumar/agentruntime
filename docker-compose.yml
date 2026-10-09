@@ -33,6 +33,7 @@ services:
       APP_ENV: production
       LOG_LEVEL: INFO
       DATABASE_URL: postgresql+psycopg://agentruntime:agentruntime@postgres:5432/agentruntime
+      API_KEY: development-api-key
 
     ports:
       - "8000:8000"

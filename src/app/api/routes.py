@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.api.auth import require_api_key
 from app.api.dependencies import get_agent_runner
 from app.api.schemas import (
     CreateRunRequest,
@@ -16,6 +17,7 @@ from app.domain.runs.models import RunStatus
 router = APIRouter(
     prefix="/runs",
     tags=["runs"],
+    dependencies=[Depends(require_api_key)],
 )
 
 
